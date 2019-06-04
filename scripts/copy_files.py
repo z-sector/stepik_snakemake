@@ -1,4 +1,5 @@
 import argparse
+import re
 
 
 def parse_args():
@@ -13,5 +14,9 @@ if __name__ == '__main__':
     file_input = args.input
     file_output = args.output
     with file_output:
-        record = 'Hello ' + file_input.read() + '!'
-        file_output.write(record)
+        lines = "".join(file_input.readlines()).lower()
+        lines = re.sub(r'\s+', '', lines)
+        ch_list = sorted(set(lines))
+        for char in ch_list:
+            record = char + ': ' + str(lines.count(char)) + '\n'
+            file_output.write(record)

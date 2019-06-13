@@ -54,3 +54,10 @@ docker run -it --rm -v $(pwd)/Snakefile:/mnt/Snakefile test
 # in the container, execute the commands
 snakemake
 ```
+
+### Tutorial snakemake
+- https://slowkow.com/notes/snakemake-tutorial/#4-extending-the-snakefile-to-collate-output-files
+- https://hpc-carpentry.github.io/hpc-python/11-snakemake-intro/
+- https://github.com/hpc-carpentry/hpc-python/tree/gh-pages/files
+- https://github.com/leipzig/SandwichesWithSnakemake
+- https://gist.github.com/agbragin/ef9b1b7faa44f857c1d6b859f5800196

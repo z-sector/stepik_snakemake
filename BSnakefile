@@ -1,0 +1,121 @@
+import os
+
+PICARD = os.getenv('PICARD')
+DATA__22_FA = "data/22.fa"
+DATA__22_FA_FAI = "data/22.fa" + ".fai"
+DATA__22_DICT = "data/22.dict"
+BAMS = glob_wildcards("input/{bam,\w+}.bam").bam
+VCFS = ["freebayes", "haplotypecaller", "samtools"]
+
+def get_vc_from_file(path):
+    with open(path) as file:
+        data = file.read()[:-1]
+    return data
+
+rule all:
+    input:
+        expand("output/reports/{bam}", bam=BAMS)
+    output: touch(".status")
+
+rule count_all:
+    input:
+        "output/{bam}/" + VCFS[0] + "_" + VCFS[1] +".txt",
+        "output/{bam}/" + VCFS[0] + "_" + VCFS[2] +".txt",
+        "output/{bam}/" + VCFS[1] + "_" + VCFS[2] +".txt",
+        "output/{bam}/" + VCFS[0] + ".txt",
+        "output/{bam}/" + VCFS[1] + ".txt",
+        "output/{bam}/" + VCFS[2] + ".txt",
+    output:
+        "output/reports/{bam}"
+    run:
+        res = get_vc_from_file(input[3]) + '\t' + get_vc_from_file(input[0]) + '\t' + get_vc_from_file(input[1]) + '\n'
+        res += get_vc_from_file(input[4]) + '\t' + 'None' + '\t' + get_vc_from_file(input[2]) + '\n'
+        res += get_vc_from_file(input[5]) + '\t' + 'None' + '\t' + 'None' + '\n'
+        with open(output[0], 'w') as file:
+            file.write(res)
+
+rule count_intersect_vcf:
+    input:
+        res_freebayes_haplotypecaller="output/{bam}/" + VCFS[0] + "_" + VCFS[1] +".gz",
+        res_freebayes_samtools="output/{bam}/" + VCFS[0] + "_" + VCFS[2] +".gz",
+        res_haplotypecaller_samtools="output/{bam}/" + VCFS[1] + "_" + VCFS[2] +".gz"
+    output:
+        count_freebayes_haplotypecaller="output/{bam}/" + VCFS[0] + "_" + VCFS[1] +".txt",
+        count_freebayes_samtools="output/{bam}/" + VCFS[0] + "_" + VCFS[2] +".txt",
+        count_haplotypecaller_samtools="output/{bam}/" + VCFS[1] + "_" + VCFS[2] +".txt"
+    shell:
+        '''
+        vcftools --gzvcf {input.res_freebayes_haplotypecaller} 2>&1 | cut -d' ' -f9 | xargs > {output.count_freebayes_haplotypecaller}
+        vcftools --gzvcf {input.res_freebayes_samtools} 2>&1 | cut -d' ' -f9 | xargs > {output.count_freebayes_samtools}
+        vcftools --gzvcf {input.res_haplotypecaller_samtools} 2>&1 | cut -d' ' -f9 | xargs > {output.count_haplotypecaller_samtools}
+        '''
+
+rule intersect_vcf:
+    input:
+        data_freebayes="output/" + VCFS[0] + "/{bam}.vcf.gz",
+        data_haplotypecaller="output/" + VCFS[1] + "/{bam}.vcf.gz",
+        data_samtools="output/" + VCFS[2] + "/{bam}.vcf.gz"
+    output:
+        res_freebayes_haplotypecaller="output/{bam}/" + VCFS[0] + "_" + VCFS[1] +".gz",
+        res_freebayes_samtools="output/{bam}/" + VCFS[0] + "_" + VCFS[2] +".gz",
+        res_haplotypecaller_samtools="output/{bam}/" + VCFS[1] + "_" + VCFS[2] +".gz"
+    shell:
+        '''
+        vcf-isec -f -n +2 {input.data_freebayes} {input.data_haplotypecaller} | bgzip -c > {output.res_freebayes_haplotypecaller} &&
+        vcf-isec -f -n +2 {input.data_freebayes} {input.data_samtools} | bgzip -c > {output.res_freebayes_samtools} &&
+        vcf-isec -f -n +2 {input.data_haplotypecaller} {input.data_samtools} | bgzip -c > {output.res_haplotypecaller_samtools}
+        '''
+
+rule index_vcf:
+    input:
+        individual="output/{bam}/{vcf}.txt",
+        zip="output/{vcf}/{bam}.vcf",
+    output: "output/{vcf}/{bam}.vcf.gz"
+    shell: "bgzip {input.zip} && tabix -p vcf {input.zip}.gz"
+
+rule count_individual_variants:
+    input: "output/{vcf}/{bam}.vcf",
+    output: "output/{bam}/{vcf}.txt"
+    shell: "vcftools --gzvcf {input}  2>&1 | cut -d' ' -f9 | xargs > {output}"
+
+rule vc_haplotypecaller:
+    input:
+        fa=DATA__22_FA,
+        fai=DATA__22_FA_FAI,
+        dict=DATA__22_DICT,
+        bam="input/{bam}.bam",
+        bam_bai="input/{bam}.bam.bai"
+    output: "output/" + VCFS[1] + "/{bam}.vcf"
+    shell: "java -jar $GATK -R {input.fa} -T HaplotypeCaller -I {input.bam} -o {output}"
+
+rule vc_freebayes:
+    input:
+        fa=DATA__22_FA,
+        fai=DATA__22_FA_FAI,
+        bam="input/{bam}.bam"
+    output: "output/" + VCFS[0] + "/{bam}.vcf"
+    shell: "freebayes -f {input.fa} {input.bam} > {output}"
+
+rule vc_samtools:
+    input:
+        fa=DATA__22_FA,
+        fai=DATA__22_FA_FAI,
+        bam="input/{bam}.bam"
+    output: "output/" + VCFS[2] + "/{bam}.vcf"
+    shell: "samtools mpileup -uf {input.fa} {input.bam} | bcftools view -vcg - > {output}"
+
+rule reference_index:
+    input: DATA__22_FA
+    output: DATA__22_FA_FAI
+    shell: "samtools faidx {input}"
+
+rule reference_dict:
+    input: DATA__22_FA
+    output: DATA__22_DICT
+    shell: "java -jar {PICARD} CreateSequenceDictionary R={input} O={output}"
+
+rule index_bam:
+    input: "input/{bam}.bam"
+    output: "input/{bam}.bam.bai"
+    shell: "samtools index {input}"
+
